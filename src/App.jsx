@@ -658,23 +658,37 @@ function FF({ label, children, full }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// ADMIN VIEW  – Nutzer einsehen, Rollen ändern
+// ADMIN VIEW  - Nutzer einsehen, Rollen ändern, User bestätigen
 // ══════════════════════════════════════════════════════════════════════════
 function AdminView({ showToast }) {
   const [users,   setUsers]   = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    supabase.from('profiles').select('*').order('created_at', { ascending: true })
-      .then(({ data }) => { setUsers(data||[]); setLoading(false) })
-  }, [])
+  const loadUsers = async () => {
+    const { data: profiles } = await supabase
+      .from('profiles').select('*').order('created_at', { ascending: true })
+    const { data: authInfo } = await supabase.rpc('get_users_confirmed_status')
+    const confirmedMap = {}
+    ;(authInfo||[]).forEach(u => { confirmedMap[u.id] = u.confirmed })
+    setUsers((profiles||[]).map(u => ({ ...u, confirmed: confirmedMap[u.id] ?? true })))
+    setLoading(false)
+  }
+
+  useEffect(() => { loadUsers() }, [])
 
   const toggleRole = async (user) => {
     const newRole = user.role === 'admin' ? 'user' : 'admin'
     const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', user.id)
     if (error) { showToast('Fehler: ' + error.message, 'err'); return }
-    setUsers(prev => prev.map(u => u.id===user.id ? {...u,role:newRole} : u))
+    setUsers(prev => prev.map(u => u.id===user.id ? {...u, role:newRole} : u))
     showToast(`${user.name} ist jetzt ${newRole}`)
+  }
+
+  const confirmUser = async (user) => {
+    const { error } = await supabase.rpc('confirm_user_by_id', { target_user_id: user.id })
+    if (error) { showToast('Fehler: ' + error.message, 'err'); return }
+    setUsers(prev => prev.map(u => u.id===user.id ? {...u, confirmed:true} : u))
+    showToast(`${user.name||user.email} wurde bestätigt ✓`)
   }
 
   return (
@@ -683,29 +697,43 @@ function AdminView({ showToast }) {
       <div style={{ background:'#fff', borderRadius:16, padding:'24px 28px',
         boxShadow:'0 2px 12px #0001', border:'1.5px solid #f0ebe3' }}>
         {loading ? <p style={{ color:'#aaa' }}>Lade…</p> : users.map(u => (
-          <div key={u.id} style={{ display:'flex', alignItems:'center', padding:'12px 0',
-            borderBottom:'1px solid #f0ebe3' }}>
-            <div style={{ width:38, height:38, borderRadius:'50%', background:'#1a3a24',
+          <div key={u.id} style={{ display:'flex', alignItems:'center', padding:'14px 0',
+            borderBottom:'1px solid #f0ebe3', gap:8, flexWrap:'wrap' }}>
+            <div style={{ width:38, height:38, borderRadius:'50%',
+              background: u.confirmed ? '#1a3a24' : '#aaa',
               color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
-              fontWeight:600, marginRight:14, fontSize:16 }}>{(u.name||u.email)[0].toUpperCase()}</div>
-            <div style={{ flex:1 }}>
+              fontWeight:600, marginRight:6, fontSize:16, flexShrink:0 }}>
+              {(u.name||u.email)[0].toUpperCase()}
+            </div>
+            <div style={{ flex:1, minWidth:120 }}>
               <div style={{ fontWeight:600 }}>{u.name||'–'}</div>
               <div style={{ fontSize:13, color:'#888' }}>{u.email}</div>
             </div>
-            <span style={{ fontSize:12, background: u.role==='admin'?'#1a3a24':'#eee',
+            <span style={{ fontSize:11, borderRadius:20, padding:'3px 10px',
+              background: u.confirmed ? '#e8f5e9' : '#fff3e0',
+              color: u.confirmed ? '#2e6b3e' : '#e65100' }}>
+              {u.confirmed ? '✓ bestätigt' : '⏳ unbestätigt'}
+            </span>
+            <span style={{ fontSize:11, background: u.role==='admin'?'#1a3a24':'#eee',
               color: u.role==='admin'?'#fff':'#555', borderRadius:20,
-              padding:'3px 12px', marginRight:12 }}>{u.role}</span>
+              padding:'3px 10px' }}>{u.role}</span>
+            {!u.confirmed && (
+              <button onClick={()=>confirmUser(u)} style={{ background:'#e8520a', color:'#fff',
+                border:'none', borderRadius:7, padding:'5px 12px',
+                cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>
+                ✓ Bestätigen
+              </button>
+            )}
             <button onClick={()=>toggleRole(u)} style={{ background:'none',
-              border:'1px solid #e0d6cc', borderRadius:7, padding:'4px 12px',
-              cursor:'pointer', fontSize:13, fontFamily:'inherit', color:'#555' }}>
+              border:'1px solid #e0d6cc', borderRadius:7, padding:'5px 12px',
+              cursor:'pointer', fontSize:12, fontFamily:'inherit', color:'#555' }}>
               {u.role==='admin' ? 'zu Nutzer' : 'zu Admin'}
             </button>
           </div>
         ))}
       </div>
       <p style={{ marginTop:16, fontSize:13, color:'#aaa', lineHeight:1.6 }}>
-        Neue Nutzer können sich selbst über die Registrierungsseite anmelden.
-        Hier kannst du Rollen anpassen.
+        Unbestätigte Nutzer können sich nicht anmelden. Klicke "Bestätigen" um sie freizuschalten.
       </p>
     </div>
   )
