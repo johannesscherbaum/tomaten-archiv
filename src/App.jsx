@@ -8,7 +8,7 @@ const SIZES  = ['Klein','Mittel','Groß','Sehr groß']
 const LOCS   = ['Gewächshaus','Garten (Freiland)','Balkon','Topf']
 
 const EMPTY_FORM = {
-  name:'', year: new Date().getFullYear(), source:'', color:'Rot', size:'Mittel',
+  name:'', latin_name:'', year: new Date().getFullYear(), source:'', color:'Rot', size:'Mittel',
   type:'Rundtomate', taste:3, taste_notes:'', harvest_rating:3, care_notes:'',
   germination_days:'', harvest_days:'', diseases:'', location:'Garten (Freiland)',
   tags:[], image_url:'',
@@ -580,6 +580,7 @@ function DetailView({ tomato: t, session, profile, onBack, onEdit, onDelete }) {
           <div style={{ position:'absolute', bottom:20, left:28, color:'#fff' }}>
             <h1 style={{ margin:0, fontSize:36, fontWeight:600, textShadow:'0 2px 8px #0005' }}>{t.name}</h1>
             <p style={{ margin:'4px 0 0', opacity:.85, fontSize:15 }}>{t.type} · {t.color} · {t.year}</p>
+            {t.latin_name && <p style={{ margin:'2px 0 0', opacity:.7, fontSize:13, fontStyle:'italic' }}>{t.latin_name}</p>}
           </div>
           {canEdit && (
             <div style={{ position:'absolute', top:16, right:16, display:'flex', gap:8 }}>
@@ -606,6 +607,7 @@ function DetailView({ tomato: t, session, profile, onBack, onEdit, onDelete }) {
             <p style={desc}>Datum: {t.created_at?.slice(0,10)||'–'}</p>
           </Sec>
           <Sec title="Eigenschaften">
+            <InfoRow l="Lateinisch" v={t.latin_name ? <em>{t.latin_name}</em> : '–'}/>
             <InfoRow l="Größe"    v={t.size}/>
             <InfoRow l="Farbe"    v={t.color}/>
             <InfoRow l="Typ"      v={t.type}/>
@@ -703,6 +705,7 @@ function FormView({ initial, onSave, onCancel }) {
 
         <FF label="Sortenname *"><input value={form.name} onChange={e=>set('name',e.target.value)} style={inputStyle} placeholder="z.B. Ochsenherz"/></FF>
         <FF label="Erntejahr"><input type="number" value={form.year} onChange={e=>set('year',+e.target.value)} style={inputStyle}/></FF>
+        <FF label="Lateinischer Name" full><input value={form.latin_name||''} onChange={e=>set('latin_name',e.target.value)} style={{...inputStyle, fontStyle:'italic'}} placeholder="z.B. Solanum lycopersicum 'Ochsenherz'"/></FF>
         <FF label="Quelle / Herkunft" full><input value={form.source} onChange={e=>set('source',e.target.value)} style={inputStyle} placeholder="Nachbar, Markt, Samentausch…"/></FF>
         <FF label="Typ"><select value={form.type} onChange={e=>set('type',e.target.value)} style={{...inputStyle,background:'#faf6f0'}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></FF>
         <FF label="Farbe"><select value={form.color} onChange={e=>set('color',e.target.value)} style={{...inputStyle,background:'#faf6f0'}}>{COLORS.map(c=><option key={c}>{c}</option>)}</select></FF>
