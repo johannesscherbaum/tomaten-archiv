@@ -113,6 +113,14 @@ export default function App() {
     setLoading(false)
   }
 
+  // ── Password reset handler (wenn User über Reset-Link zurückkommt) ──────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('reset') === 'true' && session) {
+      setView('password-reset')
+    }
+  }, [session])
+
   // ── Load tomatoes ──────────────────────────────────────────────────────
   const loadTomatoes = useCallback(async () => {
     const { data: tomatoData, error } = await supabase
@@ -261,6 +269,12 @@ export default function App() {
         {view === 'admin' && profile?.role === 'admin' && (
           <AdminView showToast={showToast} />
         )}
+        {view === 'password-reset' && (
+          <PasswordResetView showToast={showToast} onDone={() => {
+            window.history.replaceState({}, '', window.location.pathname)
+            setView('gallery')
+          }} />
+        )}
       </main>
 
       <style>{`
@@ -288,33 +302,39 @@ function Splash({ text }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// AUTH PAGE  (Login + Registrierung)
+// AUTH PAGE  (Login + Registrierung + Passwort-Reset)
 // ══════════════════════════════════════════════════════════════════════════
 function AuthPage({ showToast }) {
-  const [mode,     setMode]     = useState('login')   // login | register
+  const [mode,     setMode]     = useState('login')   // login | register | reset
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [name,     setName]     = useState('')
   const [loading,  setLoading]  = useState(false)
   const [err,      setErr]      = useState('')
+  const [sent,     setSent]     = useState(false)
+
+  const switchMode = (m) => { setMode(m); setErr(''); setSent(false) }
 
   const submit = async () => {
     setErr(''); setLoading(true)
     if (mode === 'login') {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) setErr('Falsche E-Mail oder Passwort.')
-    } else {
+    } else if (mode === 'register') {
       if (!name.trim()) { setErr('Bitte einen Namen eingeben.'); setLoading(false); return }
       const { data, error } = await supabase.auth.signUp({ email, password,
         options: { data: { name } } })
       if (error) { setErr(error.message); setLoading(false); return }
-      // create profile row
       if (data.user) {
-        await supabase.from('profiles').upsert({
-          id: data.user.id, email, name, role: 'user'
-        })
+        await supabase.from('profiles').upsert({ id: data.user.id, email, name, role: 'user' })
       }
       showToast('Registrierung erfolgreich! Bitte E-Mail bestätigen.')
+    } else if (mode === 'reset') {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + '/?reset=true',
+      })
+      if (error) { setErr(error.message); setLoading(false); return }
+      setSent(true)
     }
     setLoading(false)
   }
@@ -329,31 +349,121 @@ function AuthPage({ showToast }) {
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <div style={{ fontSize:52, marginBottom:8 }}>🍅</div>
           <h1 style={{ margin:0, fontSize:28, fontWeight:600, color:'#1a3a24' }}>Tomaten-Archiv</h1>
-          <div style={{ display:'flex', gap:0, marginTop:20, borderRadius:10, overflow:'hidden',
-            border:'1.5px solid #ddd' }}>
-            {[['login','Anmelden'],['register','Registrieren']].map(([m,l]) => (
-              <button key={m} onClick={() => { setMode(m); setErr('') }}
-                style={{ flex:1, padding:'10px', border:'none', fontFamily:'inherit',
-                  background:mode===m?'#1a3a24':'#fff', color:mode===m?'#fff':'#333',
-                  cursor:'pointer', fontSize:14, fontWeight:mode===m?600:400 }}>{l}</button>
-            ))}
-          </div>
+
+          {/* Tabs – nur Login & Registrieren; Reset ist ein Link */}
+          {mode !== 'reset' && (
+            <div style={{ display:'flex', gap:0, marginTop:20, borderRadius:10, overflow:'hidden',
+              border:'1.5px solid #ddd' }}>
+              {[['login','Anmelden'],['register','Registrieren']].map(([m,l]) => (
+                <button key={m} onClick={() => switchMode(m)}
+                  style={{ flex:1, padding:'10px', border:'none', fontFamily:'inherit',
+                    background:mode===m?'#1a3a24':'#fff', color:mode===m?'#fff':'#333',
+                    cursor:'pointer', fontSize:14, fontWeight:mode===m?600:400 }}>{l}</button>
+              ))}
+            </div>
+          )}
+
+          {mode === 'reset' && (
+            <p style={{ margin:'20px 0 0', fontSize:15, color:'#555' }}>Passwort zurücksetzen</p>
+          )}
         </div>
-        {mode === 'register' && (
-          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Dein Name"
-            style={{ ...inputStyle, marginBottom:10 }} />
+
+        {/* Reset – Erfolgsmeldung */}
+        {mode === 'reset' && sent ? (
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📬</div>
+            <p style={{ color:'#2e6b3e', fontWeight:600, marginBottom:8 }}>E-Mail verschickt!</p>
+            <p style={{ color:'#666', fontSize:14, lineHeight:1.6 }}>
+              Schau in dein Postfach. Der Link zum Zurücksetzen ist 1 Stunde gültig.
+            </p>
+            <button onClick={() => switchMode('login')} style={{ marginTop:20, background:'none',
+              border:'none', color:'#e8520a', cursor:'pointer', fontFamily:'inherit', fontSize:14 }}>
+              ← Zurück zum Login
+            </button>
+          </div>
+        ) : (
+          <>
+            {mode === 'register' && (
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Dein Name"
+                style={{ ...inputStyle, marginBottom:10 }} />
+            )}
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="E-Mail"
+              type="email" style={{ ...inputStyle, marginBottom:10 }}
+              onKeyDown={e=>e.key==='Enter'&&submit()} />
+            {mode !== 'reset' && (
+              <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Passwort"
+                type="password" style={inputStyle} onKeyDown={e=>e.key==='Enter'&&submit()} />
+            )}
+            {err && <p style={{ color:'#c0392b', fontSize:13, margin:'8px 0 0' }}>{err}</p>}
+            <button onClick={submit} disabled={loading} style={{ width:'100%', marginTop:20,
+              background:'#e8520a', color:'#fff', border:'none', borderRadius:10,
+              padding:'13px', fontSize:17, fontFamily:'inherit', fontWeight:600,
+              cursor:loading?'wait':'pointer', opacity:loading?0.7:1 }}>
+              {loading ? 'Bitte warten…'
+                : mode==='login' ? 'Anmelden'
+                : mode==='register' ? 'Konto erstellen'
+                : 'Reset-Link senden'}
+            </button>
+
+            {/* Passwort vergessen Link */}
+            {mode === 'login' && (
+              <button onClick={() => switchMode('reset')} style={{ display:'block', width:'100%',
+                marginTop:14, background:'none', border:'none', color:'#888',
+                cursor:'pointer', fontFamily:'inherit', fontSize:13 }}>
+                Passwort vergessen?
+              </button>
+            )}
+            {mode === 'reset' && (
+              <button onClick={() => switchMode('login')} style={{ display:'block', width:'100%',
+                marginTop:14, background:'none', border:'none', color:'#888',
+                cursor:'pointer', fontFamily:'inherit', fontSize:13 }}>
+                ← Zurück zum Login
+              </button>
+            )}
+          </>
         )}
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="E-Mail"
-          type="email" style={{ ...inputStyle, marginBottom:10 }}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PASSWORD RESET VIEW
+// ══════════════════════════════════════════════════════════════════════════
+function PasswordResetView({ showToast, onDone }) {
+  const [password,  setPassword]  = useState('')
+  const [password2, setPassword2] = useState('')
+  const [loading,   setLoading]   = useState(false)
+
+  const submit = async () => {
+    if (password.length < 6) { showToast('Passwort muss mind. 6 Zeichen haben', 'err'); return }
+    if (password !== password2) { showToast('Passwörter stimmen nicht überein', 'err'); return }
+    setLoading(true)
+    const { error } = await supabase.auth.updateUser({ password })
+    setLoading(false)
+    if (error) { showToast('Fehler: ' + error.message, 'err'); return }
+    showToast('Passwort erfolgreich geändert ✓')
+    onDone()
+  }
+
+  return (
+    <div style={{ maxWidth:400, margin:'60px auto' }}>
+      <div style={{ background:'#fff', borderRadius:18, padding:'40px',
+        boxShadow:'0 4px 20px #0001', border:'1.5px solid #f0ebe3', textAlign:'center' }}>
+        <div style={{ fontSize:40, marginBottom:12 }}>🔑</div>
+        <h2 style={{ margin:'0 0 24px', color:'#1a3a24', fontSize:22 }}>Neues Passwort setzen</h2>
+        <input value={password} onChange={e=>setPassword(e.target.value)}
+          type="password" placeholder="Neues Passwort (mind. 6 Zeichen)"
+          style={{ ...inputStyle, marginBottom:10 }} />
+        <input value={password2} onChange={e=>setPassword2(e.target.value)}
+          type="password" placeholder="Passwort wiederholen"
+          style={{ ...inputStyle, marginBottom:20 }}
           onKeyDown={e=>e.key==='Enter'&&submit()} />
-        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Passwort"
-          type="password" style={inputStyle} onKeyDown={e=>e.key==='Enter'&&submit()} />
-        {err && <p style={{ color:'#c0392b', fontSize:13, margin:'8px 0 0' }}>{err}</p>}
-        <button onClick={submit} disabled={loading} style={{ width:'100%', marginTop:20,
+        <button onClick={submit} disabled={loading} style={{ width:'100%',
           background:'#e8520a', color:'#fff', border:'none', borderRadius:10,
-          padding:'13px', fontSize:17, fontFamily:'inherit', fontWeight:600,
-          cursor:loading?'wait':'pointer', opacity:loading?.7:1 }}>
-          {loading ? 'Bitte warten…' : mode==='login' ? 'Anmelden' : 'Konto erstellen'}
+          padding:'13px', fontSize:16, fontFamily:'inherit', fontWeight:600,
+          cursor:loading?'wait':'pointer', opacity:loading?0.7:1 }}>
+          {loading ? 'Bitte warten…' : 'Passwort speichern'}
         </button>
       </div>
     </div>
